@@ -20,9 +20,9 @@ the following options.
         --gfile path_to_file: input, genes as multiFASTA
         --go GOid: input, Genetic Ontology ID (as in AmiGO)
         --glist list: input, blank separated list gene IDs
-        --tfile path_to_file: multiFASTA containg proteins of genome of target organism
+        --tfile path_to_file: multiFASTA containing proteins of genome of target organism
         --torg organism: target organism name (genus and specie)
-        --modfile path_to_file: optional, multiFASTA containg proteins of genome of model organism
+        --modfile path_to_file: optional, multiFASTA containing proteins of genome of model organism
         --modorg organism: optional, model organism name (genus and specie)
 
 ## Running the test
