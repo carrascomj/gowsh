@@ -1,4 +1,4 @@
-# Project Title
+# GOWSH
 
 Perl homology searcher based on webscrapping and heuristic approaches. It's supposed to look up in HomoloGene and
 Ensemble Compara after running Bidirectional best hit algorithm (BDBH) and [OrthoMCL algorithm](https://www.ncbi.nlm.nih.gov/pubmed?Db=pubmed&Cmd=ShowDetailView&TermToSearch=12952885) (OMCL).
