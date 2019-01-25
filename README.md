@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" alt="Sublime's custom image" width="400"/>
+</p>
+
 # GOWSH
 
 Perl homology searcher based on webscrapping and heuristic approaches. It's supposed to look up in HomoloGene and
@@ -42,3 +46,4 @@ This code was developed as a project for one subject of my BSc in Biotechnology 
 * Run BLAST on local using [blast+](https://www.ncbi.nlm.nih.gov/pubmed/20003500?dopt=Citation).
 * Heuristic algorithms to account for homology.
 * How to write a README.md.
+ 
