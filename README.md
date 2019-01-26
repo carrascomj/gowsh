@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.svg" alt="Sublime's custom image" width="400"/>
+  <img src="logo.svg" alt="logo" width="400"/>
 </p>
 
 # GOWSH
@@ -16,7 +16,7 @@ Clone the repo on local:
 ## Usage
 
 gowsh.pl is the main script. The program takes command-line arguments with
-the following options.
+the following options:
 
     gowsh.pl --gfile|go|glist "path_to_file|GOid|list" --tfile|torg "path_to_file|organism"
         [--modelf|modelo] "path_to_file|organism"
@@ -33,17 +33,16 @@ the following options.
 
 The script can be tested from an input file on 'examples' directory.
 
-    gowsh.pl --gfile examples/input_genes.faa --torg 'corynebacterium glutamicum' --modorg 'corynebacterium efficiens'
+    ./gowsh.pl --gfile examples/input_genes.faa --torg 'corynebacterium glutamicum' --modorg 'corynebacterium efficiens'
 
 The program will then parse the input file, download both genomes from NCBI and try to match homologues.
 
 ## What I Learned
 
 This code was developed as a project for one subject of my BSc in Biotechnology (UPM). To sum up, I learnt the following concepts:
-* Webscrapping GO using Perl.
+* Webscrapping biological information using Perl and [mygene API](http://mygene.info/v3/api#/).
 * Use of Entrez [E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25499/) programmatic access API from NCBI.
 * Use of [Ensembl](http://www.ensembl.org/index.html) API.
 * Run BLAST on local using [blast+](https://www.ncbi.nlm.nih.gov/pubmed/20003500?dopt=Citation).
 * Heuristic algorithms to account for homology.
 * How to write a README.md.
- 
