@@ -39,7 +39,7 @@ gowsh.pl --gfile|go|glist path_to_file|GOid|lista --tfile|torg path_to_file|orga
 - --gfile path_to_file: genes de input a buscar por homología como archivo multiFASTA
 - --go GOid: ID de ontología genética a buscar por homología
 - --glist GOid: lista separada por espacios de ID de genes/proteínas
-- --tfile path_to_file: multiFASTA del proteínas del organismo/genes objectivo
+- --tfile path_to_file: multiFASTA del proteínas del organismo/genes objetivo
 - --torg organism: nombre del organismo (género y especie) objectivo
 - --modfile path_to_file: opcional, multiFASTA de proteínas del organismo modelo
 - --modorg organism: opcional, nombre del organismo (género y especie) modelo
@@ -47,7 +47,7 @@ gowsh.pl --gfile|go|glist path_to_file|GOid|lista --tfile|torg path_to_file|orga
 Por defecto, cogerá path_to_file en ambos casos. \n";
 
 # 1. Main y procesamiento de argumentos
-sub main_real{
+sub main{
     my %opts = &proc_args;
     my $org_mod = "";
     if (exists $opts{"mod"}){
@@ -67,7 +67,6 @@ sub main_real{
 
 sub main2check{
     my %opts = &proc_args;
-    print $opts{gin}
 }
 
 sub proc_args{
@@ -109,8 +108,7 @@ sub proc_args{
         # por defecto: cogemos el fichero siempre (aunque haya varios inputs)
         $opts{"gin"} = &extrae_stream($genesf);
         push @path_files, $genesf
-    } elsif (@genesl){
-        # TODO: VAMOS CON EL INPUT COMO LISTA DE GENES
+    } elsif (scalar(@genesl)!=1){ # siempre coge un atributo (está en experimental)
         our @all_ids_genes; # así luego no se tendrá que buscar dos veces
         shift @genesl; # el primer elemento es un espacio, por alguna razón...
         @all_ids_genes = &d_genes(\@genesl, $modelo);
@@ -126,8 +124,22 @@ sub proc_args{
         push @path_tmp, "gene_list.faa";
         push @path_files, "gene_list.faa";
     } elsif ($go){
-        # TODO: Input como GO
-        $opts{"gin"} = &extrae_stream(&d_go($go))
+        # TODO: VAMOS CON EL INPUT COMO GO
+        our @all_ids_genes; # así luego no se tendrá que buscar dos veces
+        @all_ids_genes = &d_go($go);
+        my $eids;
+        foreach (@all_ids_genes) {
+            if ($_ !~ /^ENS/){
+                $eids .= "$_," # parseamos uids de Entrez
+            }
+        }
+        chop $eids;
+        my $uids .= &esearch($eids, "protein");
+        $opts{"gin"} = &extrae_stream(&efetch("go_$go.faa", "protein", $uids));
+        print $opts{"gin"}; exit 0;
+        push @path_tmp, "go_$go.faa";
+        push @path_files, "go_$go.faa";
+        # $opts{"gin"} = &extrae_stream(&efetch("genes_list.faa", "protein", $uids));
     } else{
         clean_ex("genes a buscar.")
     }
@@ -306,8 +318,6 @@ sub mygeneAPI{
         my $res_json = get("http://mygene.info/v3/query?q=$id"."&fields=ensembl.protein,refseq.protein,ensembl.gene&size=30&dotfield=True$spec");
         $res_json = decode_json($res_json);
         %hit = %{ $res_json };
-
-        #%hit = @{ $res_json{"hits"} }[0]
     }
     return %hit;
 }
@@ -330,7 +340,7 @@ sub d_genes{
             }
             if (! $uid){
                 $uid = exists $hit_hash{"refseq.protein"} ? $hit_hash{"refseq.protein"} : 0;
-                $uid = ref $uid ? @$uid[0] : $uid;
+                $uid = ref $uid eq 'ARRAY'? @$uid[0] : $uid;
             } if (! $ensid){
                 $ensid = exists $hit_hash{"ensembl.protein"} ? $hit_hash{"ensembl.protein"} : 0;
                 $ensid = ref $ensid eq 'ARRAY'? @$ensid[0] : $ensid;
@@ -344,6 +354,25 @@ sub d_genes{
     return @ids
 }
 
+sub d_go{
+    # Función que devuelve una serie de genes de una ontología genética
+    # INPUT ->
+    my $go = "go:".$_[0];
+    my @ids;
+    my %hits = &mygeneAPI($go);
+    foreach my $hit (@{ $hits{hits} }) { # ordenados de mayor a menor score
+        my %hit_hash = %{ $hit };
+        foreach my $entry (qw/refseq.protein ensembl.protein/) {
+            my $id = exists $hit_hash{$entry} ? $hit_hash{$entry} : 0;
+            if (ref $id eq 'ARRAY'){
+                push @ids, @{ $id }
+            } elsif ($id){
+                push @ids, $id
+            }
+        }
+    }
+    return @ids
+}
 sub d_entrez{
     # Función que descarga un genoma o proteoma del ncbi en multiFASTA mediante
     # la API de Eutils. Hace 3 llamadas así que en ningún caso será irrespetuosa
@@ -517,10 +546,6 @@ sub clean_homologene{
     close FH;
     close FHO;
     system("mv", "temp", "$out");
-}
-sub d_go{
-    # Función que descarga una serie de genes a multiFASTA a partir de una GO.
-    return
 }
 
 # 4. Blast
