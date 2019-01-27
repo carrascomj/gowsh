@@ -20,12 +20,14 @@ use Bio::SeqIO;
 use LWP::Simple;
 use Getopt::Long;
 use Data::Dumper;
+use JSON;
 
 # variables globales
 our @path_tmp; # path a archivos temportales que serán borrados
 our @path_files; # [0] gfile, [1] tfile y [2] modfile (de haberlo)
 our $out_file; # almacena archivo de output
 our %out_table; # almacena el output a lo largo del programa
+our @all_ids_genes; # por si se llama al principio a la API de mygene
 our $base = 'http://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
 our $usage = "gowsh.pl busca una serie de genes en el organismo proporcionado
 ----------------------------------------------------------------------------
@@ -36,7 +38,7 @@ gowsh.pl --gfile|go|glist path_to_file|GOid|lista --tfile|torg path_to_file|orga
 
 - --gfile path_to_file: genes de input a buscar por homología como archivo multiFASTA
 - --go GOid: ID de ontología genética a buscar por homología
-- --glist GOid: lista separada por espacios de ID de genes
+- --glist GOid: lista separada por espacios de ID de genes/proteínas
 - --tfile path_to_file: multiFASTA del proteínas del organismo/genes objectivo
 - --torg organism: nombre del organismo (género y especie) objectivo
 - --modfile path_to_file: opcional, multiFASTA de proteínas del organismo modelo
@@ -45,7 +47,7 @@ gowsh.pl --gfile|go|glist path_to_file|GOid|lista --tfile|torg path_to_file|orga
 Por defecto, cogerá path_to_file en ambos casos. \n";
 
 # 1. Main y procesamiento de argumentos
-sub main{
+sub main_real{
     my %opts = &proc_args;
     my $org_mod = "";
     if (exists $opts{"mod"}){
@@ -55,9 +57,7 @@ sub main{
         &runnin_gnomes($opts{gin}, $opts{tar});
     }
     my $org_target = lc(($opts{tar}->next_seq()->description =~ /\[([a-z1-9 ]+)\]$/i)[0]); # nombre de organismo
-    # TODO: en vez de ser únicamente de homologene, esta función debería llamar
-    # TODO: tanto al buscador de homologene como al de ensembl simultáneamente.
-    # TODO: quizás en paralelo...
+    # TODO: refactorizar la función siguiente para que cada gen sea evaluado por homologene y emsembl simultáneamente
     &search_homologene($opts{gin}, $org_target, $org_mod); # data mining en homologene
     system("rm", "-r", @path_tmp) if $path_tmp[0];
     our %out_table;
@@ -65,14 +65,9 @@ sub main{
     &write_tsv(qw/Gene BDBH HomoloGene Ensembl/)
 }
 
-sub main_to_check{
+sub main2check{
     my %opts = &proc_args;
-    #my $org_target = lc $opts{tar}->next_seq()->description;
-    my $org_target = lc (($opts{tar}->next_seq()->description =~ /\[([a-z1-9 ]+)\]$/i)[0]);
-    my $org_mod = lc (($opts{mod}->next_seq()->description =~ /\[([a-z1-9 ]+)\]$/i)[0]);
-    print "\n$org_target\n";
-    print "\n$org_mod\n";
-    system("rm", "-r", @path_tmp) if $path_tmp[0];
+    print $opts{gin}
 }
 
 sub proc_args{
@@ -102,7 +97,7 @@ sub proc_args{
     my $output = ""; # archivo de output
     GetOptions ("help|?" => \&hprint,
             "gfile:s" => \$genesf,
-            "glist:s"   => \@genesl,
+            "glist:s{,}"   => \@genesl,
             "go:s"  => \$go,
             "modfile:s" => \$modelf,
             "modorg:s" => \$modelo,
@@ -115,9 +110,24 @@ sub proc_args{
         $opts{"gin"} = &extrae_stream($genesf);
         push @path_files, $genesf
     } elsif (@genesl){
-        $opts{"gin"} = &extrae_stream(&d_entrez(@genesl))
+        # TODO: VAMOS CON EL INPUT COMO LISTA DE GENES
+        our @all_ids_genes; # así luego no se tendrá que buscar dos veces
+        shift @genesl; # el primer elemento es un espacio, por alguna razón...
+        @all_ids_genes = &d_genes(\@genesl, $modelo);
+        my $eids;
+        foreach (@all_ids_genes) {
+            if ($_ !~ /^ENS/){
+                $eids .= "$_," # parseamos uids de Entrez
+            }
+        }
+        chop $eids;
+        my $uids .= &esearch($eids, "protein");
+        $opts{"gin"} = &extrae_stream(&efetch("genes_list.faa", "protein", $uids));
+        push @path_tmp, "gene_list.faa";
+        push @path_files, "gene_list.faa";
     } elsif ($go){
-        $opts{"gin"} = &extrae_stream(&d_go(@genesl))
+        # TODO: Input como GO
+        $opts{"gin"} = &extrae_stream(&d_go($go))
     } else{
         clean_ex("genes a buscar.")
     }
@@ -208,6 +218,7 @@ sub write_tsv{
     print FHO $lines;
     close FHO;
 }
+
 sub abrir_archivo {
   my $ruta_entrada;
   my $archivo = $_[0];
@@ -260,22 +271,79 @@ sub mygeneAPI{
     #           spec: cadena, opcional, para filtrar la búsqueda en base al nombre del gen.
     # OUTPUT -> hash, contiene el json devuelto por la query.
     my $id = $_[0];
-    my $spec = $_[1] ? "&specie=".$_[1] : "";
+    my $spec = $_[1] ? $_[1] : "";
+    if ($spec){
+        my %common_names = (    # la API de mygene acepta 9 nombres comunes o Taxonomy IDs
+            "homo sapiens" => "human",
+            "mus musculus" => "mouse",
+            "rattus novergicus" => "rat",
+            "drosophila melanogaster" => "fruitfly",
+            "caenorhabditis elegans" => "nematode",
+            "danio rerio" => "zebrafish",
+            "arabidopsis thaliana" => "thale-cress",
+            "xenopus tropicalis" => "frog",
+            "sus scrofa" => "pig"
+        );
+        if (exists $common_names{$spec}){
+            # se ha proporcionado uno de los 9 nombres comunes
+            $spec = "&specie=".$common_names{$spec}
+        } else{
+            # se busca en NCBI-Taxonomy
+            $spec =~ s/ /+/;
+            $spec = "&specie=".esearch($spec, "taxonomy");
+        }
+    }
     my @ids_out;
     my %hit;
     if (! $id){
-        print("Llamada a mygeneAPI sin argumentos.\n")
+        warn "Llamada a mygeneAPI sin argumentos"
     } elsif ($id =~ /^\d+$/ || $id =~ /^ENS/){
         # tenemos un id de ENTREZ o Ensembl
         %hit = get("http://mygene.info/v3/gene/$id" . "?fields=ensembl.gene,entrezgene&dotfield=True")
     } else{
         # tenemos el nombre de un gen
         # se coge el de máxima score
-        my %res_json = get("http://mygene.info/v3/query?q=$id"."&fields=ensembl.protein,refseq.protein,ensembl.gene&size=1&dotfield=True$spec");
-        %hit = @{ $res_json{"hits"} }[0]
+        my $res_json = get("http://mygene.info/v3/query?q=$id"."&fields=ensembl.protein,refseq.protein,ensembl.gene&size=30&dotfield=True$spec");
+        $res_json = decode_json($res_json);
+        %hit = %{ $res_json };
+
+        #%hit = @{ $res_json{"hits"} }[0]
     }
     return %hit;
 }
+
+sub d_genes{
+    # Función que busca genes en un mygene y devuelve los identificadores de Entrez
+    # y Ensembl
+    # INPUTS -> all_genes: array, lista de genes/proteínas.
+    #           modorg: cadena, organismo modelo.
+    my @all_genes = @{ $_[0] };
+    my $modorg = $_[1];
+    my @ids;
+    foreach my $gene (@all_genes) {
+        my %hits = &mygeneAPI($gene,$modorg);
+        my $uid; my $ensid;
+        foreach my $hit (@{ $hits{hits} }) { # ordenados de mayor a menor score
+            my %hit_hash = %{ $hit };
+            if ($uid && $ensid){
+                last
+            }
+            if (! $uid){
+                $uid = exists $hit_hash{"refseq.protein"} ? $hit_hash{"refseq.protein"} : 0;
+                $uid = ref $uid ? @$uid[0] : $uid;
+            } if (! $ensid){
+                $ensid = exists $hit_hash{"ensembl.protein"} ? $hit_hash{"ensembl.protein"} : 0;
+                $ensid = ref $ensid eq 'ARRAY'? @$ensid[0] : $ensid;
+                if ($ensid =~ /mrna$/i){
+                    $ensid = 0
+                }
+            }
+        }
+        push @ids, $uid, $ensid
+    }
+    return @ids
+}
+
 sub d_entrez{
     # Función que descarga un genoma o proteoma del ncbi en multiFASTA mediante
     # la API de Eutils. Hace 3 llamadas así que en ningún caso será irrespetuosa
@@ -283,7 +351,6 @@ sub d_entrez{
     # - input -> query_name: cadena, nombre del organismo/gen a buscar,
     #           dbto: cadena; normalmente "homologene", "aa", "nucleotide",
     #           dbfrom: cadena, de dónde sacamos el UID (normalmente "gene" o "genome")
-    #  TODO: investigar diferencia entre "nucleotide y "gene"
     #           orgmod: nombre organismo modelo del que buscamos el gen
     # - output -> cadena, path al archivo descargado
     print "Buscando en NCBI...\n";
@@ -344,7 +411,7 @@ sub esearch{
     # OUTPUT -> ids: cadena, UIDs separados por comas
     my $query_name = $_[0];
     my $dbfrom = $_[1];
-    my $orgmod = $_[2];
+    my $orgmod = $_[2] ? $_[2] : "";
     our $base;
     my $url = $base . "esearch.fcgi?db=$dbfrom&term=$query_name$orgmod";
     my $req_xml = get($url);
@@ -382,6 +449,7 @@ sub efetch{
     #           dbto: cadena, database en la que buscamos el UID,
     #           query: cadena, query key ó UIDS separados estricatamente por coma
     #           webenv: cadena, entorno web
+    # OUPUT -> name, nombre de archivo de output (es 1 argumento, pero es conveniente)
     our $base;
     my $name = $_[0];
     my $dbto = $_[1];
@@ -398,6 +466,7 @@ sub efetch{
     open (OUT, ">$name");
     print OUT $out;
     close OUT;
+    return $name;
 }
 
 sub search_homologene{
@@ -416,14 +485,14 @@ sub search_homologene{
         $out = &d_entrez($query, "homologene", "homologene", $org_mod);
         if (! $out){
             next
+        } else{
+            push @path_tmp, $out
         }
         # Ahora, se parsea el output obtenido eliminando frases informativas
         &clean_homologene($out);
         while (my $seqtarget = &extrae_stream($out)->next_seq()){
-            # TODO: esto puede entrar en bucle, depende de cómo inteprete Perl.
             if ($org_target == lc (($seqtarget->description =~ /\[([a-z1-9 ]+)\]$/i)[0])){
                 # Tenemos un homólogo
-                # TODO: escribir el ouput bien de una vez
                 $cont++;
                 my $match = $seqtarget->id;
                 &add_output($query,$match, "BDBH");
