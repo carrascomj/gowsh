@@ -27,14 +27,13 @@ our @path_tmp; # path a archivos temportales que serán borrados
 our @path_files; # [0] gfile, [1] tfile y [2] modfile (de haberlo)
 our $out_file; # almacena archivo de output
 our %out_table; # almacena el output a lo largo del programa
-our @all_ids_genes; # por si se llama al principio a la API de mygene
-our $base = 'http://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
+our $base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
 our $usage = "gowsh.pl busca una serie de genes en el organismo proporcionado
 ----------------------------------------------------------------------------
 USO
 ----------------------------------------------------------------------------
 gowsh.pl --gfile|go|glist path_to_file|GOid|lista --tfile|torg path_to_file|organism
-    [--modelf|modelo] path_to_file|organism
+    [--modelf|modelo] path_to_file|organism --preserve
 
 - --gfile path_to_file: genes de input a buscar por homología como archivo multiFASTA
 - --go GOid: ID de ontología genética a buscar por homología
@@ -43,30 +42,39 @@ gowsh.pl --gfile|go|glist path_to_file|GOid|lista --tfile|torg path_to_file|orga
 - --torg organism: nombre del organismo (género y especie) objectivo
 - --modfile path_to_file: opcional, multiFASTA de proteínas del organismo modelo
 - --modorg organism: opcional, nombre del organismo (género y especie) modelo
+- --out: opcional, nombre de archivo de output; por defecto, GOWSH_output.tsv
+- --preserve: opcional, preserva los archivos descargados; por defecto, False
 
-Por defecto, cogerá path_to_file en ambos casos. \n";
+Por defecto, cogerá path_to_file en todo caso. \n";
+my %common_names = (    # la API de mygene acepta 9 nombres comunes o Taxonomy IDs
+    "homo sapiens" => "human",
+    "mus musculus" => "mouse",
+    "rattus novergicus" => "rat",
+    "drosophila melanogaster" => "fruitfly",
+    "caenorhabditis elegans" => "nematode",
+    "danio rerio" => "zebrafish",
+    "arabidopsis thaliana" => "thale-cress",
+    "xenopus tropicalis" => "frog",
+    "sus scrofa" => "pig"
+);
 
 # 1. Main y procesamiento de argumentos
 sub main{
     my %opts = &proc_args;
     my $org_mod = "";
-    if (exists $opts{"mod"}){
-        &runnin_gnomes($opts{gin}, $opts{tar}); # heurística BDBH
-        $org_mod = lc(($opts{mod}->next_seq()->description =~ /\[([a-z1-9 ]+)\]$/i)[0]); # nombre de organismo
-    } else{
-        &runnin_gnomes($opts{gin}, $opts{tar});
+    &runnin_gnomes($opts{gin}, $opts{tar}); # heurística BDBH
+    my $org_target = lc(($opts{tar}->next_seq()->description =~ /\[([a-z1-9\. ]+)\]$/i)[0]); # nombre de organismo target
+    &search_homologues($opts{gin}, $org_target); # data mining
+    if (! $opts{preserve}){
+        system("rm", "-r", @path_tmp) if $path_tmp[0];
     }
-    my $org_target = lc(($opts{tar}->next_seq()->description =~ /\[([a-z1-9 ]+)\]$/i)[0]); # nombre de organismo
-    # TODO: refactorizar la función siguiente para que cada gen sea evaluado por homologene y emsembl simultáneamente
-    &search_homologene($opts{gin}, $org_target, $org_mod); # data mining en homologene
-    system("rm", "-r", @path_tmp) if $path_tmp[0];
-    our %out_table;
-    print Dumper(%out_table);
+    # our %out_table;
+    # print Dumper(%out_table);
     &write_tsv(qw/Gene BDBH HomoloGene Ensembl/)
 }
 
 sub main2check{
-    my %opts = &proc_args;
+    &d_entrez("drosophila melanogaster", "protein");
 }
 
 sub proc_args{
@@ -83,7 +91,7 @@ sub proc_args{
         $opts{"gin"} = &extrae_stream($ARGV[0]);
         $opts{"tar"} = &extrae_stream($ARGV[1]);
         push @path_files, $ARGV[0], $ARGV[1];
-        $out_file = "GONG_output.txt";
+        $out_file = "GOWSH_output.txt";
         return %opts
     }
     my $genesf = ""; # genes a buscar como archivo
@@ -94,6 +102,7 @@ sub proc_args{
     my $targeto = ""; # nombre de organismo a buscar (genoma)
     my $targetf = ""; # archivo de organismo a buscar (genoma)
     my $output = ""; # archivo de output
+    my $preserve = 0;
     GetOptions ("help|?" => \&hprint,
             "gfile:s" => \$genesf,
             "glist:s{,}"   => \@genesl,
@@ -102,18 +111,18 @@ sub proc_args{
             "modorg:s" => \$modelo,
             "tfile:s" => \$targetf,
             "torg:s" => \$targeto,
-            "out:s" => \$output);
+            "out:s" => \$output,
+            "preserve!" => $preserve);
     # Input de genes a buscar
     if ($genesf){
         # por defecto: cogemos el fichero siempre (aunque haya varios inputs)
         $opts{"gin"} = &extrae_stream($genesf);
         push @path_files, $genesf
     } elsif (scalar(@genesl)!=1){ # siempre coge un atributo (está en experimental)
-        our @all_ids_genes; # así luego no se tendrá que buscar dos veces
         shift @genesl; # el primer elemento es un espacio, por alguna razón...
-        @all_ids_genes = &d_genes(\@genesl, $modelo);
+        my @all_ids_prots = &d_genes(\@genesl, $modelo);
         my $eids;
-        foreach (@all_ids_genes) {
+        foreach (@all_ids_prots) {
             if ($_ !~ /^ENS/){
                 $eids .= "$_," # parseamos uids de Entrez
             }
@@ -124,19 +133,16 @@ sub proc_args{
         push @path_tmp, "gene_list.faa";
         push @path_files, "gene_list.faa";
     } elsif ($go){
-        # TODO: VAMOS CON EL INPUT COMO GO
-        our @all_ids_genes; # así luego no se tendrá que buscar dos veces
-        @all_ids_genes = &d_go($go);
+        my @all_ids_prots = &d_go($go);
         my $eids;
-        foreach (@all_ids_genes) {
-            if ($_ !~ /^ENS/){
+        foreach (@all_ids_prots) {
+            if ($_ =~ /^[XNRMP]{2}_/){
                 $eids .= "$_," # parseamos uids de Entrez
             }
         }
         chop $eids;
         my $uids .= &esearch($eids, "protein");
         $opts{"gin"} = &extrae_stream(&efetch("go_$go.faa", "protein", $uids));
-        print $opts{"gin"}; exit 0;
         push @path_tmp, "go_$go.faa";
         push @path_files, "go_$go.faa";
         # $opts{"gin"} = &extrae_stream(&efetch("genes_list.faa", "protein", $uids));
@@ -158,7 +164,8 @@ sub proc_args{
         $opts{"mod"} = &extrae_stream(&d_entrez($modelo, "protein"))
     }
     # Archivos de output
-    $out_file = $output ? $output : "GONG_output.txt";
+    $out_file = $output ? $output : "GOWSH_output.txt";
+    $opts{"preserve"} = $preserve;
     return %opts
 }
 
@@ -211,7 +218,7 @@ sub write_tsv{
     print FHO "$header\n";
     my $lines = "";
     foreach my $gen (keys %out_table) {
-        $lines = "$gen\t";
+        $lines .= "$gen\t";
         foreach my $col (@cols) {
             if (exists $out_table{$gen}{$col}){
                 foreach my $term(@{%{$out_table{$gen}}{$col}}){
@@ -219,10 +226,8 @@ sub write_tsv{
                 }
                 chop $lines; # eliminamos la última coma
                 $lines .= "\t"
-            } else{
-                if ($col ne $cols[0]){ # la columna 1 se ignora
-                    $lines .= "FALSE\t"
-                }
+            } elsif($col ne $cols[0]){
+                $lines .= "FALSE\t"
             }
         }
         $lines .= "\n"
@@ -252,6 +257,7 @@ sub abrir_archivo {
     return @entrada;
   }
 }
+
 sub es_fasta {
   # La función itera sobre el archivo y no permite dos cabeceros seguidos.
   my @fas_wannabe = @_;
@@ -273,29 +279,20 @@ sub es_fasta {
 }
 
 # 3. Webscrapping
+# TODO: sería interesane que este bloque fuera un módulo aparte
 sub mygeneAPI{
     # Función que devuelve Ensembl o Entrez (NCBI) IDs de un gen y sus proteínas
     # dado uno de estos IDS o el nombre del gen, mediante la API de mygene.info
     # INPUTS -> id: cadena, ID o nombre de gen,
-    #           o también una proteína de Entrez -> v.g., 'q=refseq:NM_001798',
+    #           o también una proteína de Entrez -> v.g., 'refseq:NM_001798',
     #           o una proteína de Ensembl -> v.g., 'ensembl.protein:ENSP00000243067',
     #           o una ontología -> v.g., 'go:0000307';
     #           spec: cadena, opcional, para filtrar la búsqueda en base al nombre del gen.
-    # OUTPUT -> hash, contiene el json devuelto por la query.
+    # OUTPUT -> hash (referencia), contiene el json devuelto por la query.
+    our %common_names;
     my $id = $_[0];
     my $spec = $_[1] ? $_[1] : "";
     if ($spec){
-        my %common_names = (    # la API de mygene acepta 9 nombres comunes o Taxonomy IDs
-            "homo sapiens" => "human",
-            "mus musculus" => "mouse",
-            "rattus novergicus" => "rat",
-            "drosophila melanogaster" => "fruitfly",
-            "caenorhabditis elegans" => "nematode",
-            "danio rerio" => "zebrafish",
-            "arabidopsis thaliana" => "thale-cress",
-            "xenopus tropicalis" => "frog",
-            "sus scrofa" => "pig"
-        );
         if (exists $common_names{$spec}){
             # se ha proporcionado uno de los 9 nombres comunes
             $spec = "&specie=".$common_names{$spec}
@@ -314,26 +311,29 @@ sub mygeneAPI{
         %hit = get("http://mygene.info/v3/gene/$id" . "?fields=ensembl.gene,entrezgene&dotfield=True")
     } else{
         # tenemos el nombre de un gen
-        # se coge el de máxima score
-        my $res_json = get("http://mygene.info/v3/query?q=$id"."&fields=ensembl.protein,refseq.protein,ensembl.gene&size=30&dotfield=True$spec");
-        $res_json = decode_json($res_json);
-        %hit = %{ $res_json };
+        # se cogen los 30 de máxima score
+        my $res_json = get("http://mygene.info/v3/query?q=$id"."&fields=ensembl.protein,refseq.protein,ensembl.gene,homologene.genes&size=30&dotfield=True$spec");
+        %hit = %{ decode_json($res_json) };
     }
-    return %hit;
+    if (%hit){
+        return \%hit
+    } else{
+        return 0
+    }
 }
 
 sub d_genes{
     # Función que busca genes en un mygene y devuelve los identificadores de Entrez
-    # y Ensembl
+    # y Ensembl.
     # INPUTS -> all_genes: array, lista de genes/proteínas.
     #           modorg: cadena, organismo modelo.
     my @all_genes = @{ $_[0] };
     my $modorg = $_[1];
     my @ids;
     foreach my $gene (@all_genes) {
-        my %hits = &mygeneAPI($gene,$modorg);
+        my @hits = &mygeneAPI($gene,$modorg)->{hits};
         my $uid; my $ensid;
-        foreach my $hit (@{ $hits{hits} }) { # ordenados de mayor a menor score
+        foreach my $hit (@hits) { # ordenados de mayor a menor score
             my %hit_hash = %{ $hit };
             if ($uid && $ensid){
                 last
@@ -356,11 +356,13 @@ sub d_genes{
 
 sub d_go{
     # Función que devuelve una serie de genes de una ontología genética
-    # INPUT ->
+    # INPUT -> id de ontología genética
+    # OUTPUT -> ids de proteínas de Entrez y Ensembl
     my $go = "go:".$_[0];
     my @ids;
-    my %hits = &mygeneAPI($go);
-    foreach my $hit (@{ $hits{hits} }) { # ordenados de mayor a menor score
+    my %res = %{ &mygeneAPI($go) };
+    my @hits = @{ $res{hits} };
+    foreach my $hit (@hits) { # ordenados de mayor a menor score
         my %hit_hash = %{ $hit };
         foreach my $entry (qw/refseq.protein ensembl.protein/) {
             my $id = exists $hit_hash{$entry} ? $hit_hash{$entry} : 0;
@@ -382,15 +384,14 @@ sub d_entrez{
     #           dbfrom: cadena, de dónde sacamos el UID (normalmente "gene" o "genome")
     #           orgmod: nombre organismo modelo del que buscamos el gen
     # - output -> cadena, path al archivo descargado
-    print "Buscando en NCBI...\n";
     our @path_tmp;
     our @path_files;
     my $query_name = $_[0];
-    # TODO: check if dbs are in allowed entrez databases
     my $dbto = $_[1];
     my $dbfrom = $_[2] ? $_[2] : "genome";
     # si $dbfrom es "gene", es mejor precisar de qué organismo queremos sacar el gen
     my $orgmod = $_[3];
+    print "Buscando en NCBI-$dbfrom...\n";
     if ($orgmod){
         $orgmod =~ s/ /+/;
         $orgmod = '+AND+' . $orgmod . '[organism]'# género va separado de especie por un "+"
@@ -444,6 +445,9 @@ sub esearch{
     our $base;
     my $url = $base . "esearch.fcgi?db=$dbfrom&term=$query_name$orgmod";
     my $req_xml = get($url);
+    if (!$req_xml){
+        return 0
+    }
     # Parseamos el req_xml para buscar el(los) id(s) del genoma.
     my @UID;
     while ($req_xml =~ /<Id>(\d+?)<\/Id>/gs) {
@@ -458,17 +462,31 @@ sub elink{
     # INPUTS -> dbfrom: cadena, de dónde sacamos el UID (normalmente "gene" o "genome"),
     #           dbto: cadena, database en la que buscamos el UID,
     #           ids: cadena, UIDS separados estricatamente por coma
+    #           $use_h: si se le pasa un valor, devuelve ids en vez de query_key y
     # OUTPUTs -> query_key: cadena, ID en el historial de Entrez de la búsqueda
     #           webenv: cadena, entorno web
     our $base;
     my $dbfrom = $_[0];
     my $dbto = $_[1];
     my $ids = $_[2];
-    my $url = $base . "elink.fcgi?dbfrom=$dbfrom&db=$dbto&cmd=neighbor_history&id=$ids";
+    my $use_h = $_[3] ? "" : "&cmd=neighbor_history";
+    my $url = $base . "elink.fcgi?dbfrom=$dbfrom&db=$dbto$use_h&id=$ids";
     my $req_xml = get($url);
-    my $query_key = $1 if ($req_xml =~ /<QueryKey>(\d+)<\/QueryKey>/);
-    my $webenv = $1 if ($req_xml =~ /<WebEnv>(\S+)<\/WebEnv>/);
-    return $query_key, $webenv
+    if (! $req_xml){
+        return 0
+    }
+    if ($use_h){
+        my $query_key = $1 if ($req_xml =~ /<QueryKey>(\d+)<\/QueryKey>/);
+        my $webenv = $1 if ($req_xml =~ /<WebEnv>(\S+)<\/WebEnv>/);
+        return $query_key, $webenv
+    } else{
+        my @UID;
+        while ($req_xml =~ /<Id>(\d+?)<\/Id>/gs) {
+            push @UID, $1
+        }
+        shift @UID; # el primer UID es el de la búsqueda
+        my $ids = join(',', @UID);
+    }
 }
 
 sub efetch{
@@ -495,57 +513,168 @@ sub efetch{
     open (OUT, ">$name");
     print OUT $out;
     close OUT;
+    # efetch descarga como máx 10000 secuencias, hay que iterar
+    my $seqcount = `egrep -c ">" $name`; # número de secuencias en fichero
+    my $counter = 0;
+    my $ret_point = 10000;
+    while (($seqcount / 10000) !~ /\./ && $counter<10){ # while num secuencias es múltiplo de 10000
+        my $new_url = $url . "&retstart=$ret_point";
+        $out = get($new_url);
+        open (OUT, ">>$name");
+        print OUT $out;
+        close OUT;
+        $seqcount = `egrep -c ">" $name`;
+        $ret_point += 10000;
+        # 100.000 secuencias es suficiente para no eternizar el proceso
+        $counter++;
+    }
     return $name;
 }
 
-sub search_homologene{
+sub search_homologues{
     # Función que busca en Homologene (NCBI) genes homólogos a los encontrados en el input
     # INPUTS -> stream_look: objeto Bio::SeqIO de stream, input
     #           org_target: cadena, organismo objetivo,
-    #           org_model: cadena, organismo modelo
+    our @path_tmp;
     my $stream_run = $_[0];
     my $org_target = $_[1];
-    my $org_mod = $_[2];
-    my $query;
+    my @prot_ids;
     my $out;
-    my $cont = 0;
+    my $conthg = 0;
+    my $contens = 0;
+    seek($stream_run->_fh, 0, 0); # puntero a secuencia 1
     while(my $seqobj = $stream_run->next_seq()){
-        $query = $seqobj->id;
-        $out = &d_entrez($query, "homologene", "homologene", $org_mod);
-        if (! $out){
-            next
-        } else{
-            push @path_tmp, $out
+        # 1. Refseq ids de proteínas
+        my $query = $seqobj->id;
+        push @prot_ids, $query
+    }
+    my $not_added_hg_temp = 1;
+    foreach my $prot(@prot_ids){
+        # 2. Obtenemos los uids de HomoloGene y Ensemble ids y dereferenciamos
+        # 3. Filtramos por organismo objetivo en cada DB
+        # 3.1. HomoloGene
+        my $hgprots_file = &prot2homologene($prot, "temp.faa");
+        if ($hgprots_file){ # se han encontrado homólogos
+            if ($not_added_hg_temp){
+                push @path_tmp, $hgprots_file;
+                $not_added_hg_temp = 0
+            }
+            my $matches = &extrae_stream($hgprots_file);
+            while (my $seqobj = $matches->next_seq()){
+                my $id_match = $seqobj->id;
+                # filtramos por organismo
+                my $orgfrom = ($seqobj->description =~ /\[([a-z1-9\. ]+)\]$/i)[0];
+                if ($orgfrom){ # a veces, no está codificado en la descripción el organismo
+                    $orgfrom = lc $orgfrom;
+                    if ($orgfrom eq $org_target){
+                        &add_output($prot, $id_match, "HomoloGene");
+                        $conthg++;
+                    }
+                }
+            }
         }
-        # Ahora, se parsea el output obtenido eliminando frases informativas
-        &clean_homologene($out);
-        while (my $seqtarget = &extrae_stream($out)->next_seq()){
-            if ($org_target == lc (($seqtarget->description =~ /\[([a-z1-9 ]+)\]$/i)[0])){
-                # Tenemos un homólogo
-                $cont++;
-                my $match = $seqtarget->id;
-                &add_output($query,$match, "BDBH");
+        # 3.2. Ensembl homology
+        my $res = mygeneAPI("refseq:$prot")->{hits}[0];
+        my %hit = %{ $res }; # all ensembl.genes that corresponds with the protein
+        if ($hit{"ensembl.gene"}){
+            my @ensemblegenes;
+            if(ref $hit{"ensembl.gene"} eq 'ARRAY'){
+                @ensemblegenes = @{ $hit{"ensembl.gene"} }
+            } else{
+                @ensemblegenes = ($hit{"ensembl.gene"})
+            }
+            foreach my $ens (@ensemblegenes) {
+                # buscamos homólogos en Ensembl
+                my @homologies = &EnsemblREST("homology/id",$hit{"ensembl.gene"},$org_target)->{"data"}[0]{"homologies"};
+                @homologies = @{ $homologies[0] };
+                if (@homologies){
+                    my @ensprots;
+                    foreach my $match(@homologies) {
+                        # añadimos el nombre de la proteína de Entrez, solo el primero
+                        $match = $match->{target}{protein_id};
+                        my $ensprot = mygeneAPI("ensembl.protein:$match")->{hits}[0]{"refseq.protein"}; # devolvemos la proteína de refseq
+                        if (ref $ensprot eq 'ARRAY'){
+                            $ensprot = $ensprot->[0]
+                        }
+                        push @ensprots, $ensprot;
+                    }
+                    &add_output($prot, join(',', @ensprots), "Ensembl");
+                    $contens++
+                }
             }
         }
     }
-    print "$cont secuencias han producido un acierto en HomoloGene\n"
+    print "$conthg secuencias han producido un acierto en HomoloGene\n";
+    print "$contens secuencias han producido un acierto en Ensembl\n"
 }
 
-sub clean_homologene{
-    # Función que parsea el output de homologene para que sea procesado correctamente
-    # como MULTIFASTA.
-    # INPUT -> $out: archivo a parsear
-    my $out = $_[0];
+sub EnsemblREST{
+    # Función API de acceso a Ensemble
+    # INPUTS -> endpoint: cadena, cualquiera de https://rest.ensembl.org/
+    #                     v.g., "homology/id"
+    #           id: id a buscar
+    #           target_specie: cadena[opcinal], puede ser un TaxID o un nombre
+    # OUTPUT -> (referencia) hash de json (contiene una sola entrada "data" : @array)
+    our %common_names;
+    my $endpoint = $_[0] ? $_[0] : die "EnsemblREST API require 2 args, None supplied on line:".__LINE__;
+    my $id = $_[1] ? $_[1] : die "EnsemblREST API require 2 args, 1 ($endpoint) supplied on line:".__LINE__;
+    my $target_specie = $_[2];
+    if (! $target_specie){
+        $target_specie = "";
+    } elsif ($target_specie =~ /^\d+$/){
+        $target_specie = "target_taxon=$target_specie";
+    } else{
+        if (exists $common_names{$target_specie}){
+            $target_specie = "target_species=$target_specie";
+        } else{
+            $target_specie =~ s/ /+/;
+            $target_specie = "target_taxon=".esearch($target_specie, "taxonomy");
+        }
+        $target_specie =~ s/[\+ ]/_/;
+    }
+    my $url = "https://rest.ensembl.org/$endpoint/$id?$target_specie".";content-type=application/json";
+    my %res_json = %{ decode_json(get($url)) };
+    return \%res_json;
+}
+
+sub prot2homologene{
+    # Función que coge un nombre de proteína (refseq) y devuelve las proteínas homólogas
+    # a su gen asociado. Dicho así porque tiene que dar un rodeo por el uid del gen.
+    # INPUTS -> prot: cadena, proteína refseq,
+    #           out: cadena, opcional, nombre de archivo de output
+    # OUTPUT -> cadena, archivo donde se han descargado las proteínas homçologas.
+    my $prot = $_[0] ? $_[0] : die "prot2homologene require 1 arg, None supplied on line:".__LINE__;
+    my $out = $_[1] ? $_[1] : "temphomogene.faa";
+    my $uid_prot = &esearch($prot, "protein"); # prot -> uid prot
+    my $uid_gene = &elink("protein", "gene", $uid_prot, "no"); # uid prot -> uid gene
+    my $uid_hg = &elink("gene", "homologene", $uid_gene, "no"); # uid gene -> uid homologene
+    if ($uid_hg){
+        $out = &efetch($out, "homologene", $uid_hg);
+    }else{
+        return 0;
+    }
+    # Entrez descarga de Homologene un multiFASTA con comentarios, por alguna razón.
     open FH,  '<',  $out if -e $out;
-    open FHO, '>', "temp" or die "Can't write new file: $!";
+    open FHO, '>', ".temp2homogene.faa" or die "Can't write new file: $!";
+    my $com = 0;
     while (<FH>){
-        if ($_ !~ /^\d+\: HomoloGene/){
-            print FHO $_;
+        if ($com){
+            $com = 0;
+            next;
+        }
+        if($_ =~ /^>/){ # id consistente
+            $_ =~ s/gi\|\d+\|ref\|([_a-zA-Z\d\.]+)\|/$1/;
+            print FHO $_
+        } elsif($_ !~ /\d+\: HomoloGene/){
+            print FHO $_
+        } else{
+            $com = 1
         }
     }
     close FH;
     close FHO;
-    system("mv", "temp", "$out");
+    system("mv", ".temp2homogene.faa", "$out");
+    return $out;
 }
 
 # 4. Blast
@@ -579,8 +708,6 @@ sub run_blastmas{
 	open(FH, '>', "$path_now/querytmp",) or die "$!";
 	print FH ">$id\n$query";
 	close FH;
-	#my @tabular_param = qw/qseqid sseqid length ppos/;
-	#system("$prog", "-db", "$path_now/$db_file", "-query", "$path_now/querytmp", "-evalue", "$e_value", "-max_target_seqs", "1", "-outfmt", "10 qseqid sseqid length ppos", "-out","$path_now/outmp");
 	system("$prog", "-db", "$path_now/$db_file", "-query", "$path_now/querytmp", "-max_target_seqs", "1", "-outfmt", "10 qseqid sseqid length ppos", "-out","$path_now/outmp");
 	return "$path_now/outmp";
 	# Re: eliminar archivos temporales en mainprint "$long_cut\n"; if ($i>20){last};
@@ -588,9 +715,8 @@ sub run_blastmas{
 
 sub get_num_cores{
     # Función que busca el número de cores.
-    # - output -> int, número de núcleos de procesador  o, si falla, 1.
-    # archivo de información de linux.
-    my $filename = '/proc/cpuinfo';
+    # OUTPUT -> int, número de núcleos de procesador  o, si falla, 1.
+    my $filename = '/proc/cpuinfo'; # archivo de información de linux
     my $num_threads;
     if (open(my $fh, '<', $filename)) {
         while (my $row = <$fh>) {
@@ -632,7 +758,7 @@ sub runnin_gnomes {
         # Probar diferentes e-values.
 		my @all_matches = &abrir_archivo(&run_blastmas($seqobj, $path_files[1]));
 		if (! @all_matches){
-			next;
+			next
 		}
         # best_match tendrá (query_id, best_match_id, long alineamiento, porcentaje_similaridad)
 		my @best_match = split(",", $all_matches[0]);
@@ -641,11 +767,15 @@ sub runnin_gnomes {
             # Organismo modelo proporcionado por usuario.
             my $seq_obj_look = $seqs_to_look{$best_match[1]}; # el seqobj cuyo id es el match_id
             my @all_recp_matches = &abrir_archivo(&run_blastmas($seq_obj_look, $path_files[2]));
-            my @best_recp_match = split(",", $all_recp_matches[0]);
-    		if ($best_recp_match[1] eq $best_match[0]){
-    			$long_cut = $seqobj->length >= $seq_obj_look->length ? $seqobj->length : $seq_obj_look->length;
+            if (@all_recp_matches){
+                my @best_recp_match = split(",", $all_recp_matches[0]);
+        		if ($best_recp_match[1] eq $best_match[0]){
+        			$long_cut = $seqobj->length >= $seq_obj_look->length ? $seqobj->length : $seq_obj_look->length;
+                } else{
+                    next
+                }
             } else{
-                next;
+                next
             }
         } else{
             # organismo no proporcionado, la fiabilidad del algoritmo se empobrece.
@@ -653,7 +783,7 @@ sub runnin_gnomes {
         }
 		if ($best_match[2] >= 0.66*$long_cut  and $best_match[3] >= 66){
 			# Alineamiento al menos del 66% de la mayor de las secuencias y similaridad de, al menos,
-			# 66% -> tenemos un ortólogo (probablemente, a lo mejor, más o menos).
+			# 66% -> tenemos un ortólogo (probablemente).
 			$cont ++;
 			my $self_id = $best_match[0];
 			my $id_match = $best_match[1];
@@ -665,7 +795,6 @@ sub runnin_gnomes {
     foreach (@_) {
         seek($_->_fh, 0, 0);
     }
-
 }
 
 # Línea para hacer el script tanto módulo como ejecutable ("python-like")

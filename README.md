@@ -19,7 +19,7 @@ gowsh.pl is the main script. The program takes command-line arguments with
 the following options:
 
     gowsh.pl --gfile|go|glist "path_to_file|GOid|list" --tfile|torg "path_to_file|organism"
-        [--modelf|modelo] "path_to_file|organism"
+        [--modelf|modelo] "path_to_file|organism" --out "outfile" --preserve
 
         --gfile path_to_file: input, genes as multiFASTA
         --go GOid: input, Genetic Ontology ID (as in AmiGO)
@@ -28,6 +28,8 @@ the following options:
         --torg organism: target organism name (genus and specie)
         --modfile path_to_file: optional, multiFASTA containing proteins of genome of model organism
         --modorg organism: optional, model organism name (genus and specie)
+        --out "outfile": optional, name of output file; default "GOWSH_output.txt"
+        --preserve: optional, if it's added, (nearly) all files generated will be preserved.
 
 ## Running the test
 
@@ -42,7 +44,7 @@ The program will then parse the input file, download both genomes from NCBI and 
 This code was developed as a project for one subject of my BSc in Biotechnology (UPM). To sum up, I learnt the following concepts:
 * Webscrapping biological information using Perl and [mygene API](http://mygene.info/v3/api#/).
 * Use of Entrez [E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25499/) programmatic access API from NCBI.
-* Use of [Ensembl](http://www.ensembl.org/index.html) API.
+* Use of [Ensembl REST](http://www.ensembl.org/index.html) API.
 * Run BLAST on local using [blast+](https://www.ncbi.nlm.nih.gov/pubmed/20003500?dopt=Citation).
 * Heuristic algorithms to account for homology.
 * How to write a README.md.
