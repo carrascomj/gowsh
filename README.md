@@ -5,13 +5,27 @@
 # GOWSH
 
 Perl homology searcher based on webscrapping and heuristic approaches. It's supposed to look up in HomoloGene and
-Ensemble Compara after running Bidirectional best hit algorithm (BDBH) and [OrthoMCL algorithm](https://www.ncbi.nlm.nih.gov/pubmed?Db=pubmed&Cmd=ShowDetailView&TermToSearch=12952885) (OMCL).
+Ensemble Compara after running Bidirectional best hit algorithm (BDBH) and [Inparanoid](http://software.sbc.su.se/cgi-bin/request.cgi?project=inparanoid) (OMCL).
 
 ## Getting Started
 
 Clone the repo on local:
 
     git clone https://github.com/carrascomj/gowsh
+
+Add script to path (on your bash initialization file; e.g., ~/bashrc):
+
+    export PATH=$PATH:"path/to/gowsh/bin"
+
+The program requires additional packages that can be installed with [cpanm](https://metacpan.org/pod/cpanm), if not already done:
+
+    cpanm JSON Data::Dumper Bio::Seq Bio::SeqIO LWP::Simple File::Basename Getopt::Long
+
+Alternatively, one could install WebAPIsGOWSH as an usual perl package (on gowsh directory):
+
+    perl Makefile.PL
+    make
+    make install
 
 ## Usage
 
@@ -33,9 +47,11 @@ the following options:
 
 ## Running the test
 
-The script can be tested from an input file on 'examples' directory.
+The script can be tested from an input file on 't/' directory.
 
-    ./gowsh.pl --gfile examples/input_genes.faa --torg 'corynebacterium glutamicum' --modorg 'corynebacterium efficiens'
+    gowsh.pl --gfile t/input_genes.faa --torg 'corynebacterium glutamicum' --modorg 'corynebacterium efficiens'
+
+Otherwise, you can
 
 The program will then parse the input file, download both genomes from NCBI and try to match homologues.
 
@@ -47,4 +63,5 @@ This code was developed as a project for one subject of my BSc in Biotechnology 
 * Use of [Ensembl REST](http://www.ensembl.org/index.html) API.
 * Run BLAST on local using [blast+](https://www.ncbi.nlm.nih.gov/pubmed/20003500?dopt=Citation).
 * Heuristic algorithms to account for homology.
+* How to buil a Perl package.
 * How to write a README.md.

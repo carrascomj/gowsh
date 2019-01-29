@@ -1,0 +1,6 @@
+Revision history for Perl extension WebAPIsGOWSH.
+
+0.01  Tue Jan 29 17:06:54 2019
+	- original version; created by h2xs 1.23 with options
+		-AX -n WebAPIsGOWSH
+
