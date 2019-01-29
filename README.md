@@ -27,7 +27,7 @@ Alternatively, one could install WebAPIsGOWSH as an usual perl package (on 'gows
     make
     make install
 
-Finally, blastall and blast+ are both require.
+Finally, blastall and blast+ are both required.
 
 ## Usage
 
