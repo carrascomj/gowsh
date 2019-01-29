@@ -19,13 +19,15 @@ Add script to path (on your bash initialization file; e.g., ~/bashrc):
 
 The program requires additional packages that can be installed with [cpanm](https://metacpan.org/pod/cpanm), if not already done:
 
-    cpanm JSON Data::Dumper Bio::Seq Bio::SeqIO LWP::Simple File::Basename Getopt::Long
+    cpanm JSON Data::Dumper Bio::SeqIO LWP::Simple File::Basename Getopt::Long XML::Parser
 
-Alternatively, one could install WebAPIsGOWSH as an usual perl package (on gowsh directory):
+Alternatively, one could install WebAPIsGOWSH as an usual perl package (on 'gowsh/' directory):
 
     perl Makefile.PL
     make
     make install
+
+Finally, blastall and blast+ are both require.
 
 ## Usage
 
@@ -57,7 +59,7 @@ The program will then parse the input file, download both genomes from NCBI and 
 
 ## What I Learned
 
-This code was developed as a project for one subject of my BSc in Biotechnology (UPM). To sum up, I learnt the following concepts:
+This code was developed as a project for one subjects of my BSc in Biotechnology (UPM). To sum up, I learnt the following concepts:
 * Webscrapping biological information using Perl and [mygene API](http://mygene.info/v3/api#/).
 * Use of Entrez [E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25499/) programmatic access API from NCBI.
 * Use of [Ensembl REST](http://www.ensembl.org/index.html) API.
