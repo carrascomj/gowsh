@@ -289,17 +289,20 @@ sub mygeneAPI{
     #           o una ontología -> v.g., 'go:0000307';
     #           spec: cadena, opcional, para filtrar la búsqueda en base al nombre del gen.
     # OUTPUT -> hash (referencia), contiene el json devuelto por la query.
-    our %common_names;
+    our %common_names; # aprovechamos el hash para hacer memoization con género y especie
     my $id = $_[0];
     my $spec = $_[1] ? $_[1] : "";
+    my $in = $_[1];
     if ($spec){
         if (exists $common_names{$spec}){
-            # se ha proporcionado uno de los 9 nombres comunes
+            # se ha proporcionado uno de los 9 nombres comunes (o memo)
             $spec = "&specie=".$common_names{$spec}
         } else{
             # se busca en NCBI-Taxonomy
             $spec =~ s/ /+/;
-            $spec = "&specie=".esearch($spec, "taxonomy");
+            $spec = esearch($spec, "taxonomy");
+            $common_names{$in} = $spec;
+            $spec = "&specie=".$spec; # memoization
         }
     }
     my @ids_out;
@@ -514,7 +517,9 @@ sub efetch{
     print OUT $out;
     close OUT;
     # efetch descarga como máx 10000 secuencias, hay que iterar
-    my $seqcount = `egrep -c ">" $name`; # número de secuencias en fichero
+    # TODO: probar si es realmente un cuello de botella $seqcount al hacerlo con
+    # Perl estrictamente. Si no, cambiar por una función en Perl.
+    my $seqcount = `fgrep -c ">" $name`; # número de secuencias en fichero
     my $counter = 0;
     my $ret_point = 10000;
     while (($seqcount / 10000) !~ /\./ && $counter<10){ # while num secuencias es múltiplo de 10000
@@ -523,7 +528,7 @@ sub efetch{
         open (OUT, ">>$name");
         print OUT $out;
         close OUT;
-        $seqcount = `egrep -c ">" $name`;
+        $seqcount = `fgrep -c ">" $name`;
         $ret_point += 10000;
         # 100.000 secuencias es suficiente para no eternizar el proceso
         $counter++;
@@ -615,20 +620,28 @@ sub EnsemblREST{
     #           id: id a buscar
     #           target_specie: cadena[opcinal], puede ser un TaxID o un nombre
     # OUTPUT -> (referencia) hash de json (contiene una sola entrada "data" : @array)
-    our %common_names;
+    our %common_names; # aprovechamos el hash para hacer memoization con género y especie
     my $endpoint = $_[0] ? $_[0] : die "EnsemblREST API require 2 args, None supplied on line:".__LINE__;
     my $id = $_[1] ? $_[1] : die "EnsemblREST API require 2 args, 1 ($endpoint) supplied on line:".__LINE__;
     my $target_specie = $_[2];
+    my $in = $_[2];
     if (! $target_specie){
         $target_specie = "";
     } elsif ($target_specie =~ /^\d+$/){
         $target_specie = "target_taxon=$target_specie";
     } else{
         if (exists $common_names{$target_specie}){
-            $target_specie = "target_species=$target_specie";
+            if ($common_names{$target_specie} =~ /^\d+$/){ # memoization
+                $target_specie = $common_names{$target_specie};
+                $target_specie = "target_taxon=$target_specie"
+            } else{
+                $target_specie = "target_species=$target_specie";
+            }
         } else{
             $target_specie =~ s/ /+/;
-            $target_specie = "target_taxon=".esearch($target_specie, "taxonomy");
+            $target_specie = esearch($target_specie, "taxonomy");
+            $common_names{$in} = $target_specie; # memoization
+            $target_specie = "target_taxon=".$target_specie
         }
         $target_specie =~ s/[\+ ]/_/;
     }
@@ -770,7 +783,8 @@ sub runnin_gnomes {
             if (@all_recp_matches){
                 my @best_recp_match = split(",", $all_recp_matches[0]);
         		if ($best_recp_match[1] eq $best_match[0]){
-        			$long_cut = $seqobj->length >= $seq_obj_look->length ? $seqobj->length : $seq_obj_look->length;
+                    # se coge la menos restrictiva
+        			$long_cut = $seqobj->length <= $seq_obj_look->length ? $seqobj->length : $seq_obj_look->length;
                 } else{
                     next
                 }
