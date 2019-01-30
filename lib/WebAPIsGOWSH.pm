@@ -23,6 +23,17 @@ our @path_tmp; # path a archivos temportales que serán borrados
 our @path_files; # [0] gfile, [1] tfile y [2] modfile (de haberlo)
 our $out_file; # almacena archivo de output
 our %out_table; # almacena el output a lo largo del programa
+our $plant; # ensembl funciona diferente con plantas
+our %common_names = (            # la API de mygene acepta 9 nombres comunes o Taxonomy IDs
+    "homo sapiens" => "human",   # aunque se elimina arabidopsis por la implementación
+    "mus musculus" => "mouse",
+    "rattus novergicus" => "rat",
+    "drosophila melanogaster" => "fruitfly",
+    "caenorhabditis elegans" => "nematode",
+    "danio rerio" => "zebrafish",
+    "xenopus tropicalis" => "frog",
+    "sus scrofa" => "pig"
+);
 
 # 1. WebAPI functions
 sub mygeneAPI{
@@ -60,7 +71,7 @@ sub mygeneAPI{
     } else{
         # tenemos el nombre de un gen
         # se cogen los 30 de máxima score
-        my $res_json = get("http://mygene.info/v3/query?q=$id"."&fields=ensembl.protein,refseq.protein,ensembl.gene,homologene.genes&size=30&dotfield=True$spec");
+        my $res_json = get("http://mygene.info/v3/query?q=$id"."&fields=ensembl.protein,refseq.protein,ensembl.gene,symbol,homologene.genes&size=30&dotfield=True$spec");
         %hit = %{ decode_json($res_json) };
     }
     if (%hit){
@@ -191,6 +202,7 @@ sub esearch{
     my $dbfrom = $_[1];
     my $orgmod = $_[2] ? $_[2] : "";
     our $base;
+    our $plant;
     my $url = $base . "esearch.fcgi?db=$dbfrom&term=$query_name$orgmod";
     my $req_xml = get($url);
     if (!$req_xml){
@@ -202,6 +214,17 @@ sub esearch{
         push @UID, $1
     }
     my $ids = join(',', @UID);
+    if ((lc $dbfrom) eq 'taxonomy' && (! defined $plant)){
+        # perform efetch without downloading to fastly see if organisms are plants (to Ensembl)
+        $url = $base . "efetch.fcgi?db=$dbfrom&id=$ids";
+        my $tax_xml = get($url);
+        if ($tax_xml =~ /<ScientificName>.+plantae<\/ScientificName>/){
+            $plant = 1;
+        } else{
+            $plant = 0;
+        }
+    }
+    return $ids
 }
 
 sub elink{
@@ -299,6 +322,7 @@ sub search_homologues{
         push @prot_ids, $query
     }
     my $not_added_hg_temp = 1;
+    print "\nBuscando HomoloGene y Ensembl...\n";
     foreach my $prot(@prot_ids){
         # 2. Obtenemos los uids de HomoloGene y Ensemble ids y dereferenciamos
         # 3. Filtramos por organismo objetivo en cada DB
@@ -326,23 +350,32 @@ sub search_homologues{
         # 3.2. Ensembl homology
         my $res = mygeneAPI("refseq:$prot")->{hits}[0];
         my %hit = %{ $res }; # all ensembl.genes that corresponds with the protein
-        if ($hit{"ensembl.gene"}){
+        if ($hit{"symbol"}){
             my @ensemblegenes;
-            if(ref $hit{"ensembl.gene"} eq 'ARRAY'){
-                @ensemblegenes = @{ $hit{"ensembl.gene"} }
+            if(ref $hit{"symbol"} eq 'ARRAY'){
+                @ensemblegenes = @{ $hit{"symbol"} }
             } else{
-                @ensemblegenes = ($hit{"ensembl.gene"})
+                @ensemblegenes = ($hit{"symbol"})
             }
             foreach my $ens (@ensemblegenes) {
                 # buscamos homólogos en Ensembl
-                my @homologies = &EnsemblREST("homology/id",$hit{"ensembl.gene"},$org_target)->{"data"}[0]{"homologies"};
-                @homologies = @{ $homologies[0] };
+                my $data = &EnsemblREST("homology/id",$hit{"symbol"},$org_target)->{"data"};
+                my @homologies = $data->[0]{homologies};
+                if ((! @homologies) || ! defined $homologies[0]){
+                    next
+                }
+                @homologies = @{ $homologies[0] }; # [0] es homologies, [1] es id
                 if (@homologies){
                     my @ensprots;
                     foreach my $match(@homologies) {
                         # añadimos el nombre de la proteína de Entrez, solo el primero
                         $match = $match->{target}{protein_id};
                         my $ensprot = mygeneAPI("ensembl.protein:$match")->{hits}[0]{"refseq.protein"}; # devolvemos la proteína de refseq
+                        if (! $ensprot){
+                            $ensprot = $match; # no queda otra que devolver el de Ensembl (o Ensembl Plant)
+                            print "No se encontró equivalente a refseq en mygene para $ensprot. Se devuelve el identificador de Ensembl.\n"
+
+                        }
                         if (ref $ensprot eq 'ARRAY'){
                             $ensprot = $ensprot->[0]
                         }
@@ -366,8 +399,9 @@ sub EnsemblREST{
     #           target_specie: cadena[opcinal], puede ser un TaxID o un nombre
     # OUTPUT -> (referencia) hash de json (contiene una sola entrada "data" : @array)
     our %common_names; # aprovechamos el hash para hacer memoization con género y especie
-    my $endpoint = $_[0] ? $_[0] : die "EnsemblREST API require 2 args, None supplied on line:".__LINE__;
-    my $id = $_[1] ? $_[1] : die "EnsemblREST API require 2 args, 1 ($endpoint) supplied on line:".__LINE__;
+    our $plant; # si verdadero, se buscará en Ensembl genomes
+    my $endpoint = $_[0] ? $_[0] : die "(WebAPIsGOWSH) EnsemblREST API require 2 args, None supplied on line:".__LINE__;
+    my $id = $_[1] ? $_[1] : die "(WebAPIsGOWSH) EnsemblREST API require 2 args, 1 ($endpoint) supplied on line:".__LINE__;
     my $target_specie = $_[2];
     my $in = $_[2];
     if (! $target_specie){
@@ -390,7 +424,13 @@ sub EnsemblREST{
         }
         $target_specie =~ s/[\+ ]/_/;
     }
-    my $url = "https://rest.ensembl.org/$endpoint/$id?$target_specie".";content-type=application/json";
+    my $base;
+    if (! $plant){
+        $base = "https://rest.ensembl.org/"
+    } else{
+        $base = "https://rest.ensemblgenomes.org/"
+    }
+    my $url = $base . "$endpoint/$id?$target_specie" . ";content-type=application/json";
     my %res_json = %{ decode_json(get($url)) };
     return \%res_json;
 }

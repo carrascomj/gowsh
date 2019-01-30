@@ -44,35 +44,31 @@ gowsh.pl --gfile|go|glist path_to_file|GOid|lista --tfile|torg path_to_file|orga
 - --preserve: opcional, preserva los archivos descargados; por defecto, False
 
 Por defecto, cogerá path_to_file en todo caso. \n";
-my %common_names = (    # la API de mygene acepta 9 nombres comunes o Taxonomy IDs
-    "homo sapiens" => "human",
-    "mus musculus" => "mouse",
-    "rattus novergicus" => "rat",
-    "drosophila melanogaster" => "fruitfly",
-    "caenorhabditis elegans" => "nematode",
-    "danio rerio" => "zebrafish",
-    "arabidopsis thaliana" => "thale-cress",
-    "xenopus tropicalis" => "frog",
-    "sus scrofa" => "pig"
-);
 
 # 1. Main y procesamiento de argumentos
 sub main{
     my %opts = &proc_args;
-    my $org_mod = "";
     &runnin_gnomes($opts{gin}, $opts{tar}); # heurística BDBH
     my $org_target = lc(($opts{tar}->next_seq()->description =~ /\[([a-z1-9\. ]+)\]$/i)[0]); # nombre de organismo target
     &search_homologues($opts{gin}, $org_target); # data mining
     if (! $opts{preserve}){
         system("rm", "-r", @path_tmp) if $path_tmp[0];
     }
-    # our %out_table;
-    # print Dumper(%out_table);
     &write_tsv(qw/Gene BDBH HomoloGene Ensembl/)
 }
 
 sub main2check{
-    &d_entrez("drosophila melanogaster", "protein");
+    my $pid = fork();
+    die if not defined $pid;
+    if (not $pid) {
+        my $path_to_inparanoid = dirname(dirname abs_path $0) . "/bin_inparanoid/inparanoid.pl";
+        my $arg1 = $path_files[1];
+        my $arg2 = $path_files[2];
+        print "\nCorriendo Inparanoid...\n";
+        system("$path_to_inparanoid", "$arg1", "$arg2");
+        exit 0;
+    }
+    print "Ok, vamos a ver qué pasa\n"; wait(); exit 0;
 }
 
 sub proc_args{
@@ -234,6 +230,7 @@ sub runnin_gnomes {
 	my $stream_run = $_[0];
 	my $stream_look = $_[1];
     my %seqs_to_look;
+    print "Corriendo BDBH...\n";
     if ($stream_look){
         while(my $seq = $stream_look->next_seq()){
     		# Metemos las secuencias en un hash con id por clave.

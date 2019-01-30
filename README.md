@@ -5,7 +5,7 @@
 # GOWSH
 
 Perl homology searcher based on webscrapping and heuristic approaches. It's supposed to look up in HomoloGene and
-Ensemble Compara after running Bidirectional best hit algorithm (BDBH) and [Inparanoid](http://software.sbc.su.se/cgi-bin/request.cgi?project=inparanoid) (OMCL).
+Ensemble Compara after running Bidirectional best hit algorithm (BDBH) and [Inparanoid](http://inparanoid.sbc.su.se/cgi-bin/index.cgi).
 
 ## Getting Started
 
@@ -49,21 +49,21 @@ the following options:
 
 ## Running the test
 
-The script can be tested from an input file on 't/' directory.
+The script can be tested wit the following command:
 
-    gowsh.pl --gfile t/input_genes.faa --torg 'corynebacterium glutamicum' --modorg 'corynebacterium efficiens'
+    gowsh.pl --go 0048507 --modfile arabidopsis_thaliana.faa --tfile oryza_sativa.faa
 
-Otherwise, you can
+You can compare the output with the file "t/GOWSH_outputq1.tsv".
 
-The program will then parse the input file, download both genomes from NCBI and try to match homologues.
+The program will then parse the input file, download both genomes from NCBI and try to match homologues. It's important to note that GOWSH speaks in Spanish (translation of both the code and the messages is coming soon...).
 
 ## What I Learned
 
-This code was developed as a project for one subjects of my BSc in Biotechnology (UPM). To sum up, I learnt the following concepts:
+This code was developed as a project for one subjects of my BSc in Biotechnology (UPM). To sum up, I learned the following concepts:
 * Webscrapping biological information using Perl and [mygene API](http://mygene.info/v3/api#/).
 * Use of Entrez [E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25499/) programmatic access API from NCBI.
 * Use of [Ensembl REST](http://www.ensembl.org/index.html) API.
 * Run BLAST on local using [blast+](https://www.ncbi.nlm.nih.gov/pubmed/20003500?dopt=Citation).
 * Heuristic algorithms to account for homology.
-* How to buil a Perl package.
+* How to build a Perl package.
 * How to write a README.md.
