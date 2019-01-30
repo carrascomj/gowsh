@@ -15,7 +15,7 @@ BEGIN {
    require Exporter;
    $WebAPIsGOWSH::VERSION = '0.1';
    @ISA = qw(Exporter);
-   @EXPORT = qw(@path_tmp @path_files $out_file %out_table mygeneAPI d_genes d_go d_entrez esearch elink efetch search_homologues EnsemblREST prot2homologene extrae_stream add_output)
+   @EXPORT = qw(@path_tmp @path_files $out_file %out_table mygeneAPI d_genes d_go d_entrez esearch elink efetch search_homologues EnsemblREST prot2homologene extrae_stream add_output inparanoidWeb)
 }
 
 our $base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
@@ -315,6 +315,7 @@ sub search_homologues{
     my $out;
     my $conthg = 0;
     my $contens = 0;
+    my $continp = 0;
     seek($stream_run->_fh, 0, 0); # puntero a secuencia 1
     while(my $seqobj = $stream_run->next_seq()){
         # 1. Refseq ids de proteínas
@@ -322,7 +323,7 @@ sub search_homologues{
         push @prot_ids, $query
     }
     my $not_added_hg_temp = 1;
-    print "\nBuscando HomoloGene y Ensembl...\n";
+    print "\nBuscando HomoloGene, Ensembl e InParanoid...\n";
     foreach my $prot(@prot_ids){
         # 2. Obtenemos los uids de HomoloGene y Ensemble ids y dereferenciamos
         # 3. Filtramos por organismo objetivo en cada DB
@@ -386,9 +387,23 @@ sub search_homologues{
                 }
             }
         }
+        # 3.3. Inparanoid online
+        my @matches_inp;
+        if ($hit{"ensembl.protein"}){
+            @matches_inp = inparanoidWeb($hit{"ensembl.protein"}, $org_target);
+        } elsif ($hit{"symbol"}){
+            @matches_inp = inparanoidWeb($hit{"symbol"}, $org_target);
+        } elsif ($hit{"_id"}){
+            @matches_inp = inparanoidWeb($hit{"_id"}, $org_target);
+        }
+        if (@matches_inp){
+            &add_output($prot, join(',', @matches_inp), "InparanoidWEB");
+            $continp++
+        }
     }
     print "$conthg secuencias han producido un acierto en HomoloGene\n";
-    print "$contens secuencias han producido un acierto en Ensembl\n"
+    print "$contens secuencias han producido un acierto en Ensembl\n";
+    print "$continp secuencias han producido un acierto en InParanoid online\n"
 }
 
 sub EnsemblREST{
@@ -475,6 +490,57 @@ sub prot2homologene{
     return $out;
 }
 
+sub inparanoidWeb{
+    # Función que hace una request a la página de Inparalog para intentar inferir
+    # homología online
+    # INPUTS -> query: cadena, proteína
+    #           org: cadena, organismo a filtrar
+    # OUTPUTS -> cadena (match) o 0 (no ha habido match)
+    my $query = $_[1];
+    my $org = $_[2] ? $_[2] : "all";
+    my $url = "http://inparanoid.sbc.su.se/cgi-bin/gene_search.cgi?id=" . $query ."&idtype=all&all_or_selection=all&specieslist=7&scorelimit=0.05&.submit=Submit+Query&.cgifields=specieslist&.cgifields=idtype&.cgifields=all_or_selection";
+    my $res_xml = get($url);
+    my @res = split "\n", $res_xml;
+    my $this_line;
+    my $parse_org;
+    my $match;
+    my $i = 0;
+    my @matches;
+    foreach (@res){
+        if ($parse_org){
+            if ($_ =~ /(taxonomy.+>$org)/i){
+                #print $+;
+                $parse_org = 0;
+                push @matches, $match;
+                $i = 0;
+            }
+            $i++;
+            if ($i > 3){
+                $parse_org = 0;
+                $i = 0;
+            }
+        } elsif ($this_line){
+            $this_line = 0;
+            $parse_org = 1;
+            if ($_ =~ /([A-Za-z0-9_\.]+)<\/a/){
+                $match = "$1"
+            }
+        } elsif ($_ =~ /<td class=\"proteinid\">/){
+            $this_line = 1;
+        }
+    }
+    my @returned_matches;
+    foreach my $al (@matches){
+        if (@returned_matches){
+            if(! grep $_ eq $al, @returned_matches){
+                push @returned_matches, $al
+            }
+        } else{
+            push @returned_matches, $al
+        }
+    }
+    return @returned_matches;
+}
 # 2. I/O functions
 sub add_output {
 	# Añade un match al hash donde se almacenan los resultados

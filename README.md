@@ -4,8 +4,8 @@
 
 # GOWSH
 
-Perl homology searcher based on webscrapping and heuristic approaches. It's supposed to look up in HomoloGene and
-Ensemble Compara after running Bidirectional best hit algorithm (BDBH) and [Inparanoid](http://inparanoid.sbc.su.se/cgi-bin/index.cgi).
+Perl homology searcher based on webscrapping and heuristic approaches. It's supposed to look up in HomoloGene,
+Ensemble and [Inparanoid](http://inparanoid.sbc.su.se/cgi-bin/index.cgi) after running Bidirectional best hit algorithm (BDBH).
 
 ## Getting Started
 

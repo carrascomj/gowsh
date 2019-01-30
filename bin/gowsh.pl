@@ -54,21 +54,7 @@ sub main{
     if (! $opts{preserve}){
         system("rm", "-r", @path_tmp) if $path_tmp[0];
     }
-    &write_tsv(qw/Gene BDBH HomoloGene Ensembl/)
-}
-
-sub main2check{
-    my $pid = fork();
-    die if not defined $pid;
-    if (not $pid) {
-        my $path_to_inparanoid = dirname(dirname abs_path $0) . "/bin_inparanoid/inparanoid.pl";
-        my $arg1 = $path_files[1];
-        my $arg2 = $path_files[2];
-        print "\nCorriendo Inparanoid...\n";
-        system("$path_to_inparanoid", "$arg1", "$arg2");
-        exit 0;
-    }
-    print "Ok, vamos a ver qué pasa\n"; wait(); exit 0;
+    &write_tsv(qw/Gene BDBH HomoloGene Ensembl InparanoidWEB/)
 }
 
 sub proc_args{
@@ -339,5 +325,6 @@ sub get_num_cores{
        return 1
    }
 }
+
 # Línea para hacer el script tanto módulo como ejecutable ("python-like")
 &main() if not caller();
