@@ -110,8 +110,6 @@ sub proc_args{
         chop $eids;
         my $uids .= &esearch($eids, "protein");
         $opts{"gin"} = &extrae_stream(&efetch("genes_list.faa", "protein", $uids));
-        push @path_tmp, "gene_list.faa";
-        push @path_files, "gene_list.faa";
     } elsif ($go){
         my @all_ids_prots = &d_go($go);
         my $eids;

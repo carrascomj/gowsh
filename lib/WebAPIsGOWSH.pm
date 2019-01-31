@@ -92,6 +92,9 @@ sub d_genes{
     foreach my $gene (@all_genes) {
         my @hits = &mygeneAPI($gene,$modorg)->{hits};
         my $uid; my $ensid;
+        if (ref $hits[0] eq 'ARRAY'){ # fallo en el parseo de decode_json
+            @hits = @{ $hits[0] }
+        }
         foreach my $hit (@hits) { # ordenados de mayor a menor score
             my %hit_hash = %{ $hit };
             if ($uid && $ensid){
