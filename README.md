@@ -51,7 +51,7 @@ the following options:
 
 The script can be tested wit the following command:
 
-    gowsh.pl --go 0048507 --modfile arabidopsis_thaliana.faa --tfile oryza_sativa.faa
+    gowsh.pl --go 0048507 --modorg "arabidopsis thaliana" --torg "oryza sativa"
 
 You can compare the output with the file "t/GOWSH_outputq1.tsv".
 
