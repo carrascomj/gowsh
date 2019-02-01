@@ -15,7 +15,7 @@ BEGIN {
    require Exporter;
    $WebAPIsGOWSH::VERSION = '0.1';
    @ISA = qw(Exporter);
-   @EXPORT = qw(@path_tmp @path_files $out_file %out_table mygeneAPI d_genes d_go d_entrez esearch elink efetch search_homologues EnsemblREST prot2homologene extrae_stream add_output inparanoidWeb)
+   @EXPORT = qw(@path_tmp @path_files $out_file %out_table mygeneAPI d_genes d_go d_entrez esearch elink efetch search_homologues EnsemblREST prot2homologene get_stream add_output inparanoidWeb)
 }
 
 our $base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
@@ -153,7 +153,7 @@ sub d_entrez{
     my $dbfrom = $_[2] ? $_[2] : "genome";
     # si $dbfrom es "gene", es mejor precisar de qué organismo queremos sacar el gen
     my $orgmod = $_[3];
-    print "Buscando en NCBI-$dbfrom...\n";
+    print "Searching NCBI-$dbfrom...\n";
     if ($orgmod){
         $orgmod =~ s/ /+/;
         $orgmod = '+AND+' . $orgmod . '[organism]'# género va separado de especie por un "+"
@@ -326,7 +326,7 @@ sub search_homologues{
         push @prot_ids, $query
     }
     my $not_added_hg_temp = 1;
-    print "\nBuscando HomoloGene, Ensembl e InParanoid...\n";
+    print "\nSearching HomoloGene, Ensembl e InParanoid...\n";
     foreach my $prot(@prot_ids){
         # 2. Obtenemos los uids de HomoloGene y Ensemble ids y dereferenciamos
         # 3. Filtramos por organismo objetivo en cada DB
@@ -337,7 +337,7 @@ sub search_homologues{
                 push @path_tmp, $hgprots_file;
                 $not_added_hg_temp = 0
             }
-            my $matches = &extrae_stream($hgprots_file);
+            my $matches = &get_stream($hgprots_file);
             while (my $seqobj = $matches->next_seq()){
                 my $id_match = $seqobj->id;
                 # filtramos por organismo
@@ -377,7 +377,7 @@ sub search_homologues{
                         my $ensprot = mygeneAPI("ensembl.protein:$match")->{hits}[0]{"refseq.protein"}; # devolvemos la proteína de refseq
                         if (! $ensprot){
                             $ensprot = $match; # no queda otra que devolver el de Ensembl (o Ensembl Plant)
-                            print "No se encontró equivalente a refseq en mygene para $ensprot. Se devuelve el identificador de Ensembl.\n"
+                            print "Refseq equivalent wasn't found for in mygene for $ensprot. Ensembl ID will be returned.\n"
 
                         }
                         if (ref $ensprot eq 'ARRAY'){
@@ -404,9 +404,9 @@ sub search_homologues{
             $continp++
         }
     }
-    print "$conthg secuencias han producido un acierto en HomoloGene\n";
-    print "$contens secuencias han producido un acierto en Ensembl\n";
-    print "$continp secuencias han producido un acierto en InParanoid online\n"
+    print "$conthg matches where produced by HomoloGene\n";
+    print "$contens matches where produced by Ensembl\n";
+    print "$continp matches where produced by InParanoid online\n"
 }
 
 sub EnsemblREST{
@@ -565,7 +565,7 @@ sub add_output {
     }
 }
 
-sub extrae_stream {
+sub get_stream {
 	# Función que extrae el objeto de stream que contiene
 	# todas las secuencias de un multifasta.
 	# - input -> seqs (cadena): path al archivo,

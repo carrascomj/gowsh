@@ -1,18 +1,9 @@
 #!/usr/bin/perl
 
-# Script para buscar genes homólogos de un genoma en otro.
-# Pasos en la implementación:
-# 1.1) Input a través de geneID de Ensembl o como MULTIFASTA del modelo.
-# 2.1) Input Organismo a buscar como ID de Ensembl o como MULTIFASTA.
-# 2.2) Input Organismo a buscar por el nombre científico (webscrapping)
-# 3.1) Búsqueda por homología.
-# 1.2) Input de los genes del modelo a buscar como GO+organismo (webscrapping)
-# 3.2) Busqueda por homologen, ProtCluster.
-# 3.3) Solo para plantas, buscar intensivamente los no encontradas a partir de un
-#       MAS ya definido.
+# Script that looks up homologues genes based on user input.
 
-# Autor: Jorge Carrasco Muriel
-# Fecha de creación: 22/01/2019
+# Author: Jorge Carrasco Muriel
+# Data of creation: 22/01/2019
 
 use warnings;
 use strict;
@@ -26,24 +17,22 @@ use lib dirname(dirname abs_path $0) . '/lib';
 use WebAPIsGOWSH;
 
 # variables globales
-our $usage = "gowsh.pl busca una serie de genes en el organismo proporcionado
+our $usage = "gowsh.pl looks up homologues genes based on user input.
 ----------------------------------------------------------------------------
 USO
 ----------------------------------------------------------------------------
 gowsh.pl --gfile|go|glist path_to_file|GOid|lista --tfile|torg path_to_file|organism
     [--modelf|modelo] path_to_file|organism --out output --preserve
 
-- --gfile path_to_file: genes de input a buscar por homología como archivo multiFASTA
-- --go GOid: ID de ontología genética a buscar por homología
-- --glist GOid: lista separada por espacios de ID de genes/proteínas
-- --tfile path_to_file: multiFASTA del proteínas del organismo/genes objetivo
-- --torg organism: nombre del organismo (género y especie) objectivo
-- --modfile path_to_file: opcional, multiFASTA de proteínas del organismo modelo
-- --modorg organism: opcional, nombre del organismo (género y especie) modelo
-- --out output: opcional, nombre de archivo de output; por defecto, GOWSH_output.tsv
-- --preserve: opcional, preserva los archivos descargados; por defecto, False
-
-Por defecto, cogerá path_to_file en todo caso. \n";
+    --gfile path_to_file: input, genes as multiFASTA
+    --go GOid: input, Genetic Ontology ID (as in AmiGO)
+    --glist list: input, blank separated list gene IDs
+    --tfile path_to_file: multiFASTA containing proteins of genome of target organism
+    --torg organism: target organism name (genus and specie)
+    --modfile path_to_file: optional, multiFASTA containing proteins of genome of model organism
+    --modorg organism: optional, model organism name (genus and specie)
+    --out outfile: optional, name of output file; default 'GOWSH_output.txt'
+    --preserve: optional, if it's added, (nearly) all files generated will be preserved.\n";
 
 # 1. Main y procesamiento de argumentos
 sub main{
@@ -64,12 +53,12 @@ sub proc_args{
     our $out_file;
     our @path_files;
     sub hprint{ print "$usage"; exit 0 }
-    sub clean_ex{ print "No se proporcionó $_[0]\n --help para ver sus opciones \n." }
+    sub clean_ex{ print $_[0] . " weren't provided\n --help to print usage\n." }
     my %opts = ();
     if ($#ARGV+1 == 2){
         # Si solo hay 2 argumentos, se asume que se han introducido dos ficheros.
-        $opts{"gin"} = &extrae_stream($ARGV[0]);
-        $opts{"tar"} = &extrae_stream($ARGV[1]);
+        $opts{"gin"} = &get_stream($ARGV[0]);
+        $opts{"tar"} = &get_stream($ARGV[1]);
         push @path_files, $ARGV[0], $ARGV[1];
         $out_file = "GOWSH_output.txt";
         return %opts
@@ -96,7 +85,7 @@ sub proc_args{
     # Input de genes a buscar
     if ($genesf){
         # por defecto: cogemos el fichero siempre (aunque haya varios inputs)
-        $opts{"gin"} = &extrae_stream($genesf);
+        $opts{"gin"} = &get_stream($genesf);
         push @path_files, $genesf
     } elsif (scalar(@genesl)!=1){ # siempre coge un atributo (está en experimental)
         shift @genesl; # el primer elemento es un espacio, por alguna razón...
@@ -109,7 +98,7 @@ sub proc_args{
         }
         chop $eids;
         my $uids .= &esearch($eids, "protein");
-        $opts{"gin"} = &extrae_stream(&efetch("genes_list.faa", "protein", $uids));
+        $opts{"gin"} = &get_stream(&efetch("genes_list.faa", "protein", $uids));
     } elsif ($go){
         my @all_ids_prots = &d_go($go);
         my $eids;
@@ -120,26 +109,26 @@ sub proc_args{
         }
         chop $eids;
         my $uids .= &esearch($eids, "protein");
-        $opts{"gin"} = &extrae_stream(&efetch("go_$go.faa", "protein", $uids));
+        $opts{"gin"} = &get_stream(&efetch("go_$go.faa", "protein", $uids));
         push @path_tmp, "go_$go.faa";
         push @path_files, "go_$go.faa";
-        # $opts{"gin"} = &extrae_stream(&efetch("genes_list.faa", "protein", $uids));
+        # $opts{"gin"} = &get_stream(&efetch("genes_list.faa", "protein", $uids));
     } else{
-        clean_ex("genes a buscar.")
+        clean_ex("input genes.")
     }
     # Input de organismo objetivo
     if ($targetf){
-        $opts{"tar"} = &extrae_stream($targetf);
+        $opts{"tar"} = &get_stream($targetf);
         push @path_files, $targetf
     } elsif ($targeto){
-        $opts{"tar"} = &extrae_stream(&d_entrez($targeto, "protein"))
+        $opts{"tar"} = &get_stream(&d_entrez($targeto, "protein"))
     }
     # Input de modelo
     if ($modelf){
-        $opts{"mod"} = &extrae_stream($modelf);
+        $opts{"mod"} = &get_stream($modelf);
         push @path_files, $modelf
     } elsif ($modelo){
-        $opts{"mod"} = &extrae_stream(&d_entrez($modelo, "protein"))
+        $opts{"mod"} = &get_stream(&d_entrez($modelo, "protein"))
     }
     # Archivos de output
     $out_file = $output ? $output : "GOWSH_output.txt";
@@ -184,7 +173,7 @@ sub abrir_archivo {
   my $ruta_entrada;
   my $archivo = $_[0];
   if (! $archivo){
-    print "No se proporcionaron argumentos.\nIntroduzca la ruta de archivo: ";
+    print "Arguments weren't provided.\nWrite path to file: ";
     $ruta_entrada = <STDIN>;
     print "\n";
     chomp $ruta_entrada;
@@ -192,7 +181,7 @@ sub abrir_archivo {
     $ruta_entrada = $archivo;
   }
   if (! open(FILE, $ruta_entrada)){
-    print "No se pudo abrir el archivo: $!\n";
+    print "Can't write to file: $!\n";
     return 0;
   } else{
     open(FILE, $ruta_entrada);
@@ -214,7 +203,7 @@ sub runnin_gnomes {
 	my $stream_run = $_[0];
 	my $stream_look = $_[1];
     my %seqs_to_look;
-    print "Corriendo BDBH...\n";
+    print "Running BDBH...\n";
     if ($stream_look){
         while(my $seq = $stream_look->next_seq()){
     		# Metemos las secuencias en un hash con id por clave.
@@ -262,7 +251,7 @@ sub runnin_gnomes {
             &add_output($self_id, $id_match, "BDBH");
 	    }
 	}
-    print "$cont secuencias han producido un acierto mediante BEST RECIPROCAL MATCHES\n";
+    print "$cont matches where produced by BEST RECIPROCAL MATCHES\n";
     # Finalmente, se reinician los punteros de las streams
     foreach (@_) {
         seek($_->_fh, 0, 0);
