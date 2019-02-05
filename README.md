@@ -55,7 +55,7 @@ The script can be tested wit the following command:
 
 You can compare the output with the file "t/GOWSH_outputq1.tsv".
 
-The program will then parse the input file, download both genomes from NCBI and try to match homologues. It's important to note that GOWSH speaks in Spanish (translation of both the code and the messages is coming soon...).
+The program will then parse the input file, download both genomes from NCBI and try to match homologues.
 
 ## What I Learned
 
